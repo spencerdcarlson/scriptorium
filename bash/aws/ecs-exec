@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROFILE=${PROFILE:-Development}
+CLUSTER=${CLUSTER:-cluster}
+SERVICE=${SERVICE:-service}
+DEBUG=${DEBUG:-false}
+
+is_debug_enabled() {
+  [[ -n "$DEBUG" && "$DEBUG" != "0" && "$DEBUG" != "false" ]]
+}
+
+function log () {
+  local message="${1}"
+  local is_error="${2:-false}"
+  local is_debug="${3:-false}"
+
+  if [[ "${is_error}" == true ]]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - ERROR: ${message}" >&2
+  elif [[ "${is_debug}" == true && $(is_debug_enabled) ]]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - DEBUG: ${message}" >&2
+  elif [[ "${is_error}" != true && "${is_debug}" != true ]]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - INFO: ${message}" >&2
+  fi
+}
+
+function with_error () {
+  local message="${1}"
+  log "${message}" true
+  exit 1
+}
+
+function get_task () {
+  local profile=${1:-$PROFILE}
+  local cluster=${2:-$CLUSTER}
+  local service=${3:-$SERVICE}
+
+  log "Requesting ecs task. profile=${profile}, cluster=${cluster}, service=${service}" false true
+
+  aws ecs list-tasks \
+    --output text \
+    --profile "${profile}" \
+    --cluster "${cluster}" \
+    --service-name "${service}" \
+    --query 'taskArns[0]'
+}
+
+function execute_cmd () {
+  local task_id=${1}
+  local command=${2:-/bin/bash}
+  local profile=${3:-$PROFILE}
+  local cluster=${4:-$CLUSTER}
+
+  [[ -z "${task_id}" ]] && with_error "task_id is required but not provided."
+
+
+  log "Executing interactive commnad. command=${command}, task=${task_id}"
+
+  aws ecs execute-command \
+    --profile "${profile}" \
+    --cluster "${cluster}" \
+    --task "${task_id}" \
+    --command "${command}" \
+    --interactive
+}
+
+TASK_ID=$(get_task)
+log "Got Task ID. TASK_ID=${TASK_ID}"
+execute_cmd "${TASK_ID}"
